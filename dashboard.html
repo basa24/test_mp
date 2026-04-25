@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CV Module Debug Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #2a2a2a;
+            border-radius: 8px;
+        }
+        
+        h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        
+        .status {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+        
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #666;
+        }
+        
+        .status-dot.connected {
+            background: #4ade80;
+            box-shadow: 0 0 10px #4ade80;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .panel {
+            background: #2a2a2a;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        
+        .panel h2 {
+            margin: 0 0 15px 0;
+            font-size: 16px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 200px;
+        }
+        
+        .signals-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .signals-table td {
+            padding: 8px;
+            border-bottom: 1px solid #3a3a3a;
+        }
+        
+        .signals-table td:first-child {
+            color: #888;
+            width: 50%;
+        }
+        
+        .signals-table td:last-child {
+            font-family: 'Courier New', monospace;
+            text-align: right;
+        }
+        
+        .value-true {
+            color: #4ade80;
+        }
+        
+        .value-false {
+            color: #666;
+        }
+        
+        .value-number {
+            color: #60a5fa;
+        }
+        
+        .calibration-bar {
+            width: 100%;
+            height: 30px;
+            background: #3a3a3a;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+        
+        .calibration-progress {
+            height: 100%;
+            background: linear-gradient(90deg, #4ade80, #22c55e);
+            transition: width 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        button {
+            padding: 10px 20px;
+            background: #3a3a3a;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        button:hover {
+            background: #4a4a4a;
+        }
+        
+        button:active {
+            background: #2a2a2a;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎥 CV Module Debug Dashboard</h1>
+        <div class="status">
+            <div>
+                <span style="color: #888;">WebSocket:</span>
+                <span id="wsStatus">Disconnected</span>
+            </div>
+            <div class="status-dot" id="statusDot"></div>
+        </div>
+    </div>
+
+    <div class="grid">
+        <!-- Current Signals -->
+        <div class="panel">
+            <h2>Current Signals</h2>
+            <table class="signals-table" id="signalsTable">
+                <tr><td>Face Visible</td><td id="sig-faceVisible">-</td></tr>
+                <tr><td>Blink Detected</td><td id="sig-blinkDetected">-</td></tr>
+                <tr><td>Is Smiling</td><td id="sig-isSmiling">-</td></tr>
+                <tr><td>Mouth Open</td><td id="sig-mouthOpen">-</td></tr>
+                <tr><td>Looking Away</td><td id="sig-lookingAway">-</td></tr>
+                <tr><td>Attention Score</td><td id="sig-attentionScore">-</td></tr>
+                <tr><td>Head Yaw</td><td id="sig-headYawDegrees">-</td></tr>
+                <tr><td>Head Pitch</td><td id="sig-headPitchDegrees">-</td></tr>
+                <tr><td>Blink Rate Deviation</td><td id="sig-blinkRateDeviation">-</td></tr>
+            </table>
+        </div>
+
+        <!-- Calibration Status -->
+        <div class="panel">
+            <h2>Calibration Status</h2>
+            <div id="calibrationStatus">
+                <div style="font-size: 14px; color: #888; margin-bottom: 10px;">
+                    Status: <span id="calibStatus">Not started</span>
+                </div>
+                <div class="calibration-bar">
+                    <div class="calibration-progress" id="calibProgress" style="width: 0%">0%</div>
+                </div>
+                <div style="margin-top: 10px; font-size: 12px; color: #666;">
+                    Baseline: <span id="baselineValue">-</span> blinks/min
+                </div>
+            </div>
+            <div class="controls">
+                <button onclick="resetBaseline()">🔄 Reset Baseline</button>
+                <button onclick="sendPing()">📡 Ping</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="grid">
+        <div class="panel">
+            <h2>Attention Score (Last 30s)</h2>
+            <div class="chart-container">
+                <canvas id="attentionChart"></canvas>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>Blink Rate Deviation (Last 30s)</h2>
+            <div class="chart-container">
+                <canvas id="blinkChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h2>Head Pose (Last 30s)</h2>
+        <div class="chart-container">
+            <canvas id="headPoseChart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        const MAX_DATA_POINTS = 150; // ~30 seconds at 5 Hz
+
+        // Data arrays for charts
+        const attentionData = [];
+        const blinkDeviationData = [];
+        const headYawData = [];
+        const headPitchData = [];
+        const timestamps = [];
+
+        // Chart.js setup
+        const chartConfig = {
+            type: 'line',
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                scales: {
+                    x: { display: false },
+                    y: { 
+                        grid: { color: '#3a3a3a' },
+                        ticks: { color: '#888' }
+                    }
+                },
+                plugins: {
+                    legend: { display: false }
+                }
+            }
+        };
+
+        // Attention Score Chart
+        const attentionChart = new Chart(
+            document.getElementById('attentionChart'),
+            {
+                ...chartConfig,
+                data: {
+                    labels: timestamps,
+                    datasets: [{
+                        data: attentionData,
+                        borderColor: '#4ade80',
+                        backgroundColor: 'rgba(74, 222, 128, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    ...chartConfig.options,
+                    scales: {
+                        ...chartConfig.options.scales,
+                        y: { 
+                            ...chartConfig.options.scales.y,
+                            min: 0, 
+                            max: 1 
+                        }
+                    }
+                }
+            }
+        );
+
+        // Blink Deviation Chart
+        const blinkChart = new Chart(
+            document.getElementById('blinkChart'),
+            {
+                ...chartConfig,
+                data: {
+                    labels: timestamps,
+                    datasets: [{
+                        data: blinkDeviationData,
+                        borderColor: '#60a5fa',
+                        backgroundColor: 'rgba(96, 165, 250, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                }
+            }
+        );
+
+        // Head Pose Chart
+        const headPoseChart = new Chart(
+            document.getElementById('headPoseChart'),
+            {
+                ...chartConfig,
+                data: {
+                    labels: timestamps,
+                    datasets: [
+                        {
+                            label: 'Yaw',
+                            data: headYawData,
+                            borderColor: '#f472b6',
+                            backgroundColor: 'rgba(244, 114, 182, 0.1)',
+                            fill: false,
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Pitch',
+                            data: headPitchData,
+                            borderColor: '#fbbf24',
+                            backgroundColor: 'rgba(251, 191, 36, 0.1)',
+                            fill: false,
+                            tension: 0.4
+                        }
+                    ]
+                },
+                options: {
+                    ...chartConfig.options,
+                    plugins: {
+                        legend: { 
+                            display: true,
+                            labels: { color: '#888' }
+                        }
+                    },
+                    scales: {
+                        ...chartConfig.options.scales,
+                        y: { 
+                            ...chartConfig.options.scales.y,
+                            min: -90, 
+                            max: 90 
+                        }
+                    }
+                }
+            }
+        );
+
+        function connectWebSocket() {
+            ws = new WebSocket('ws://localhost:8765');
+            
+            ws.onopen = () => {
+                document.getElementById('wsStatus').textContent = 'Connected';
+                document.getElementById('statusDot').classList.add('connected');
+                console.log('Connected to CV module');
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                
+                // Skip connection status messages
+                if (data.status) return;
+                
+                updateSignals(data);
+                updateCharts(data);
+                updateCalibration(data);
+            };
+            
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+            
+            ws.onclose = () => {
+                document.getElementById('wsStatus').textContent = 'Disconnected';
+                document.getElementById('statusDot').classList.remove('connected');
+                console.log('Disconnected from CV module');
+                
+                // Attempt reconnect after 2 seconds
+                setTimeout(connectWebSocket, 2000);
+            };
+        }
+
+        function updateSignals(data) {
+            const formatValue = (key, value) => {
+                if (typeof value === 'boolean') {
+                    return `<span class="value-${value}">${value ? '✓ TRUE' : '✗ FALSE'}</span>`;
+                }
+                if (typeof value === 'number') {
+                    return `<span class="value-number">${value.toFixed(2)}</span>`;
+                }
+                return `<span class="value-number">${value || '-'}</span>`;
+            };
+
+            const signals = [
+                'faceVisible', 'blinkDetected', 'isSmiling', 'mouthOpen',
+                'lookingAway', 'attentionScore', 'headYawDegrees', 
+                'headPitchDegrees', 'blinkRateDeviation'
+            ];
+
+            signals.forEach(key => {
+                const elem = document.getElementById(`sig-${key}`);
+                if (elem && data.hasOwnProperty(key)) {
+                    elem.innerHTML = formatValue(key, data[key]);
+                }
+            });
+        }
+
+        function updateCharts(data) {
+            const now = new Date().toLocaleTimeString();
+            
+            timestamps.push(now);
+            attentionData.push(data.attentionScore ?? 0);
+            blinkDeviationData.push(data.blinkRateDeviation ?? 0);
+            headYawData.push(data.headYawDegrees ?? 0);
+            headPitchData.push(data.headPitchDegrees ?? 0);
+
+            // Keep only last N points
+            if (timestamps.length > MAX_DATA_POINTS) {
+                timestamps.shift();
+                attentionData.shift();
+                blinkDeviationData.shift();
+                headYawData.shift();
+                headPitchData.shift();
+            }
+
+            attentionChart.update('none');
+            blinkChart.update('none');
+            headPoseChart.update('none');
+        }
+
+        function updateCalibration(data) {
+            if (data.baselineEstablished === false) {
+                const remaining = data.calibrationSecondsRemaining ?? 0;
+                const total = 20.0;
+                const progress = Math.max(0, ((total - remaining) / total) * 100);
+                
+                document.getElementById('calibStatus').textContent = `Calibrating... ${remaining.toFixed(1)}s remaining`;
+                document.getElementById('calibProgress').style.width = progress + '%';
+                document.getElementById('calibProgress').textContent = Math.round(progress) + '%';
+            } else if (data.baselineEstablished === true) {
+                document.getElementById('calibStatus').textContent = '✓ Calibration Complete';
+                document.getElementById('calibProgress').style.width = '100%';
+                document.getElementById('calibProgress').textContent = '100%';
+                document.getElementById('baselineValue').textContent = data.baselineBlinksPerMin ?? '-';
+            }
+        }
+
+        function resetBaseline() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({command: 'resetBaseline'}));
+                console.log('Sent resetBaseline command');
+            }
+        }
+
+        function sendPing() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({command: 'ping'}));
+                console.log('Sent ping command');
+            }
+        }
+
+        // Connect on page load
+        connectWebSocket();
+    </script>
+</body>
+</html>

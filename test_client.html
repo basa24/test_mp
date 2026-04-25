@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<body>
+<h1>CV Data Stream</h1>
+<pre id="output"></pre>
+
+<script>
+const ws = new WebSocket('ws://localhost:8765');
+const output = document.getElementById('output');
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  output.textContent = JSON.stringify(data, null, 2);
+};
+
+ws.onopen = () => console.log('Connected to CV module');
+ws.onerror = (error) => console.error('WebSocket error:', error);
+</script>
+</body>
+</html>
