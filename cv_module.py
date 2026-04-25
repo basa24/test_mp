@@ -38,22 +38,31 @@ blink_times = []
 last_blink_state = False
 
 # --- ATTENTION TRACKING ---
-attention_history = []  # rolling window of attention samples
-ATTENTION_WINDOW = 30  # track last 30 samples (~3 seconds at 10 Hz)
+attention_history = []
+ATTENTION_WINDOW = 30
 last_face_seen_time = time.time()
+
+# --- PROXIMITY TRACKING ---
+face_area_history = []
+PROXIMITY_WINDOW = 30
+baseline_face_area = None
 
 # --- WEBSOCKET STATE ---
 connected_clients = set()
 latest_data = {"faceVisible": False}
-command_queue = []  # Commands received from clients
+command_queue = []
 
 def reset_baseline():
     """Reset baseline calibration"""
     global calibration_start_time, baseline_established, baseline_blinks_per_min, blink_times
+    global baseline_face_area, face_area_history
+    
     calibration_start_time = time.time()
     baseline_established = False
     baseline_blinks_per_min = 0.0
     blink_times = []
+    baseline_face_area = None
+    face_area_history = []
     print("🔄 BASELINE RESET - Starting new calibration period")
 
 async def websocket_handler(websocket):
@@ -62,16 +71,13 @@ async def websocket_handler(websocket):
     print(f"🔌 Client connected. Total clients: {len(connected_clients)}")
     
     try:
-        # Send initial connection confirmation
         await websocket.send(json.dumps({"status": "connected", "message": "CV module ready"}))
         
-        # Listen for commands from game
         async for message in websocket:
             try:
                 cmd = json.loads(message)
                 print(f"📨 Received command: {cmd}")
                 
-                # Handle different command types
                 if cmd.get("command") == "resetBaseline":
                     command_queue.append(("resetBaseline", None))
                     await websocket.send(json.dumps({"status": "ok", "message": "Baseline reset initiated"}))
@@ -101,7 +107,7 @@ async def broadcast_data():
                 *[client.send(message) for client in connected_clients],
                 return_exceptions=True
             )
-        await asyncio.sleep(0.1)  # 10 Hz broadcast rate
+        await asyncio.sleep(0.1)
 
 async def websocket_server():
     """Start WebSocket server on port 8765"""
@@ -142,7 +148,7 @@ while True:
     elapsed_time = current_time - calibration_start_time
 
     if result.face_landmarks:
-        last_face_seen_time = current_time  # Update last seen time
+        last_face_seen_time = current_time
         
         data = {
             "timestamp": current_time,
@@ -192,6 +198,38 @@ while True:
             data["headPitchDegrees"] = round(float(pitch), 1)
             data["lookingAway"] = bool(abs(yaw) > 25 or abs(pitch) > 25)
 
+        # --- PROXIMITY ESTIMATION ---
+        landmarks = result.face_landmarks[0]
+        
+        xs = [lm.x for lm in landmarks]
+        ys = [lm.y for lm in landmarks]
+        
+        box_width = max(xs) - min(xs)
+        box_height = max(ys) - min(ys)
+        face_area = box_width * box_height
+        
+        face_area_history.append(face_area)
+        
+        if len(face_area_history) > PROXIMITY_WINDOW:
+            face_area_history.pop(0)
+        
+        if baseline_face_area and baseline_face_area > 0:
+            current_face_area = sum(face_area_history) / len(face_area_history) if face_area_history else face_area
+            proximity_deviation = (current_face_area - baseline_face_area) / baseline_face_area
+            
+            data["faceArea"] = round(face_area, 4)
+            data["proximityDeviation"] = round(proximity_deviation, 2)
+            
+            if proximity_deviation < -0.15:
+                data["proximityState"] = "far"
+            elif proximity_deviation > 0.15:
+                data["proximityState"] = "close"
+            else:
+                data["proximityState"] = "normal"
+        else:
+            data["faceArea"] = round(face_area, 4)
+            data["proximityState"] = "calibrating"
+
         # --- BASELINE CALIBRATION ---
         if not baseline_established:
             if elapsed_time >= CALIBRATION_DURATION:
@@ -200,8 +238,13 @@ while True:
                 else:
                     baseline_blinks_per_min = 10.0
                 
+                # Set proximity baseline
+                if face_area_history:
+                    baseline_face_area = sum(face_area_history) / len(face_area_history)
+                    print(f"📏 PROXIMITY BASELINE: {baseline_face_area:.4f}")
+                
                 baseline_established = True
-                print(f"\n🎯 BASELINE ESTABLISHED: {baseline_blinks_per_min:.1f} blinks/min\n")
+                print(f"🎯 BASELINE ESTABLISHED: {baseline_blinks_per_min:.1f} blinks/min\n")
             
             data["baselineEstablished"] = False
             data["calibrationSecondsRemaining"] = round(CALIBRATION_DURATION - elapsed_time, 1)
@@ -223,16 +266,13 @@ while True:
         # --- ATTENTION SCORE CALCULATION ---
         instant_attention = 1.0
         
-        # Penalty for looking away
         if data.get("lookingAway", False):
             instant_attention *= 0.3
         
-        # Penalty for excessive blinking (discomfort/avoidance)
         if baseline_established and data.get("blinkRateDeviation", 0) > 0.5:
             instant_attention *= 0.7
         
-        # Penalty for looking away from screen for extended time
-        time_since_looking = 0.0  # Face visible and looking = 0
+        time_since_looking = 0.0
         
         attention_history.append(instant_attention)
 
@@ -240,8 +280,7 @@ while True:
         # No face detected
         time_since_looking = current_time - last_face_seen_time
         
-        # Attention drops quickly when face disappears
-        instant_attention = max(0.0, 1.0 - (time_since_looking / 5.0))  # Drops to 0 over 5 seconds
+        instant_attention = max(0.0, 1.0 - (time_since_looking / 5.0))
         attention_history.append(instant_attention)
         
         data = {
