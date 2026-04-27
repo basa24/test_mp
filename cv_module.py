@@ -1,3 +1,4 @@
+
 import cv2
 import time
 import json
@@ -11,10 +12,9 @@ import asyncio
 import websockets
 from threading import Thread
 
-base_options = python.BaseOptions(
-   model_asset_path=r"C:\Users\aksha\Downloads\face_landmarker.task"
-)
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "face_landmarker.task")
 
+base_options = python.BaseOptions(model_asset_path=MODEL_PATH)
 options = vision.FaceLandmarkerOptions(
     base_options=base_options,
     running_mode=vision.RunningMode.VIDEO,
@@ -27,9 +27,10 @@ detector = vision.FaceLandmarker.create_from_options(options)
 cap = cv2.VideoCapture(0)
 
 frame_timestamp_ms = 0
+last_frame_time = time.time()
 
 # --- BASELINE CALIBRATION STATE ---
-CALIBRATION_DURATION = 20.0
+CALIBRATION_DURATION = 10.0
 calibration_start_time = time.time()
 baseline_established = False
 baseline_blinks_per_min = 0.0
@@ -39,12 +40,12 @@ last_blink_state = False
 
 # --- ATTENTION TRACKING ---
 attention_history = []
-ATTENTION_WINDOW = 30
+ATTENTION_WINDOW = 5
 last_face_seen_time = time.time()
 
 # --- PROXIMITY TRACKING ---
 face_area_history = []
-PROXIMITY_WINDOW = 30
+PROXIMITY_WINDOW = 5
 baseline_face_area = None
 
 # --- WEBSOCKET STATE ---
@@ -128,6 +129,7 @@ time.sleep(1)
 
 # --- MAIN CV LOOP ---
 while True:
+    loop_start_perf = time.perf_counter()
     success, frame = cap.read()
     if not success:
         break
@@ -145,6 +147,9 @@ while True:
     result = detector.detect_for_video(mp_image, frame_timestamp_ms)
 
     current_time = time.time()
+    dt = max(1e-6, current_time - last_frame_time)
+    stream_fps = 1.0 / dt
+    last_frame_time = current_time
     elapsed_time = current_time - calibration_start_time
 
     if result.face_landmarks:
@@ -193,9 +198,11 @@ while True:
             
             pitch = -rot_vec[0][0] * (180 / math.pi)
             yaw = rot_vec[1][0] * (180 / math.pi)
+            roll = rot_vec[2][0] * (180 / math.pi)
             
             data["headYawDegrees"] = round(float(yaw), 1)
             data["headPitchDegrees"] = round(float(pitch), 1)
+            data["headRollDegrees"] = round(float(roll), 1)
             data["lookingAway"] = bool(abs(yaw) > 25 or abs(pitch) > 25)
 
         # --- PROXIMITY ESTIMATION ---
@@ -263,6 +270,8 @@ while True:
             data["currentBlinksPerMin"] = round(current_blinks_per_min, 1)
             data["blinkRateDeviation"] = round(deviation, 2)
 
+        data["blinkCountSession"] = len(blink_times)
+
         # --- ATTENTION SCORE CALCULATION ---
         instant_attention = 1.0
         
@@ -299,17 +308,20 @@ while True:
     else:
         data["attentionScore"] = 0.0
 
+    data["streamFps"] = round(stream_fps, 1)
+    data["processingLatencyMs"] = round((time.perf_counter() - loop_start_perf) * 1000, 1)
+
     # Update shared state for WebSocket broadcast
     latest_data = data
     
     # Print to console for debugging
     print(json.dumps(data, indent=2))
 
-    cv2.imshow("Webcam", frame)
+    #cv2.imshow("Webcam", frame)
     time.sleep(0.1)
 
     if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
 cap.release()
-cv2.destroyAllWindows()
+#cv2.destroyAllWindows()

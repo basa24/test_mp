@@ -1,0 +1,76 @@
+"""
+CACHE FIX FOR horror_director_server.py
+========================================
+
+Replace the get_player_state() function with this version.
+
+This fixes the "forever cache" problem by actually using the vision_cache_ttl config.
+"""
+
+def get_player_state() -> str:
+    """Capture webcam with TTL-based caching."""
+    now = time.monotonic()
+    
+    # Only use cache if fresh enough
+    if _vision_cache["snapshot"] and (now - _vision_cache["timestamp"]) < CONFIG["vision_cache_ttl"]:
+        age = now - _vision_cache["timestamp"]
+        log.debug("Vision cache hit (%.1fs old)", age)
+        return _vision_cache["snapshot"]
+    
+    # Otherwise refresh the webcam
+    log.info("Vision cache expired or empty, capturing fresh webcam...")
+    cap = None
+    try:
+        cap = cv2.VideoCapture(0)
+        if not cap.isOpened():
+            return "Camera unavailable."
+            
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        for _ in range(2):
+            cap.read()
+        ret, frame = cap.read()
+
+        if not ret:
+            return "Could not capture frame."
+
+        description = analyze_frame(frame)
+        log.info("Vision: %s", description[:120])
+        
+        # Update cache with fresh data
+        _vision_cache["snapshot"] = description
+        _vision_cache["timestamp"] = now
+        
+        return description
+
+    except Exception as exc:
+        log.error("Vision error: %s", exc)
+        return f"Vision error: {exc}"
+    finally:
+        if cap:
+            cap.release()
+
+
+"""
+WHAT THIS CHANGES:
+==================
+
+BEFORE (broken):
+  - First dialogue request: captures webcam, caches forever
+  - All subsequent requests: returns same cached description
+  - Player movement/changes never detected
+
+AFTER (fixed):
+  - First request: captures webcam, caches for 5 seconds (default CONFIG["vision_cache_ttl"])
+  - Requests within 5s: returns cached description (efficient)
+  - Requests after 5s: captures fresh webcam, updates cache
+  - NPCs can now react to: looking away, leaning closer, changing lighting, new objects in frame
+
+TESTING:
+========
+1. Apply this fix to horror_director_server.py
+2. Use test_horror_pipeline.py to test locally first
+3. Try multiple dialogue requests 10+ seconds apart
+4. Move around, change lighting, put on/take off glasses between requests
+5. Verify the dialogue references change with your actual state
+"""

@@ -34,6 +34,58 @@ Connect to `ws://localhost:8765` from your game engine. You'll immediately start
 
 ---
 
+## 📁 File Guide (Everything Except cv_module.py)
+
+This section explains the other files in this repository and what each is used for.
+
+### Runtime / Integration Files
+
+- `dashboard.html`  
+  Live debug dashboard for CV signals over WebSocket (`ws://localhost:8765`). Shows current values, calibration state, and charts.
+
+- `director_agent.py`  
+  Rule-based horror director. Consumes CV signals and emits gameplay decisions/actions over a WebSocket server for Unity clients.
+
+- `director_agent_hybrid.py`  
+  Hybrid director: rule gate + Ollama text model (`llama3.2`) for creative action selection.
+
+- `visual_fear_detector.py`  
+  Separate webcam analysis pipeline using Ollama vision models (for emotion/fear inference). Broadcasts analysis on port `8766`.
+
+### Test / Debug Utilities
+
+- `test_client.html`  
+  Minimal browser client that prints raw CV JSON stream from `ws://localhost:8765`.
+
+- `test_director.html`  
+  Minimal browser client for director output stream on `ws://localhost:8766`.
+
+- `test_horror_pipeline.py`  
+  CLI test harness for dialogue generation flow (camera + prompt + Ollama), without Unity.
+
+### Legacy / Draft / Docs
+
+- `first_working_draft.py`  
+  Earlier standalone prototype of the CV pipeline (older calibration/prototyping script).
+
+- `pitch.html`  
+  Presentation deck for the project concept and architecture.
+
+- `CACHE_FIX.txt`  
+  Patch notes/snippet for fixing stale vision-cache behavior in an external/older server implementation.
+
+### Assets
+
+- `face_landmarker.task`  
+  MediaPipe face landmark model file required by the CV stack.
+
+### Notes About Missing / Stale References
+
+- `test_horror_pipeline.py` imports `scene_understander`, but `scene_understander.py` is currently missing from this repo.
+- Some prior file listings may mention `director_a` / `scene_understander.py`; they are not present in the current workspace snapshot.
+
+---
+
 ## 📡 WebSocket Protocol
 
 ### Connection
@@ -158,6 +210,9 @@ Response:
 | `headYawDegrees` | float | -90 to +90 | Head rotation left/right (neg=left, pos=right) |
 | `headPitchDegrees` | float | -90 to +90 | Head tilt up/down (neg=down, pos=up) |
 | `lookingAway` | bool | - | True when head turned >25° in any direction |
+
+
+
 
 ### Calibration Fields
 
@@ -284,6 +339,92 @@ Response:
 - Track which direction player looks away (left vs right)
 - "Look up" / "Look down" explicit instructions
 - Detect head shaking (rapid yaw oscillation) = "no" gesture
+
+---
+
+---
+
+### `proximityDeviation` (-1.0 to +1.0+) & `proximityState`
+**What it measures:** How close the player is to the camera compared to their baseline distance.
+
+**Available after:** `baselineEstablished: true` (20 seconds calibration)
+
+| proximityDeviation | proximityState | Meaning |
+|-------------------|----------------|---------|
+| < -0.15 | `"far"` | Player leaned back / moved away from screen |
+| -0.15 to +0.15 | `"normal"` | Player at normal distance |
+| > +0.15 | `"close"` | Player leaned in / moved closer to screen |
+| N/A | `"calibrating"` | Still establishing baseline |
+
+**How it works:** Tracks face bounding box area. Larger face = closer to camera. During calibration, establishes the player's normal sitting distance, then reports deviations from that baseline.
+
+**Important caveats:**
+- **Not true distance measurement** — just relative change from baseline
+- **Affected by head angle** — turning head left/right makes face appear smaller even if distance unchanged
+- **Per-player variation** — someone with a large face sitting far away looks similar to someone with a small face sitting close
+
+**Use cases:**
+
+| Scenario | Interpretation | Director Action |
+|----------|---------------|-----------------|
+| `proximityState: "far"` sustained 5+ sec | Player physically avoiding screen (fear/discomfort) | Dial back intensity or trigger "don't hide from me" moment |
+| `proximityState: "close"` during tense scene | Player leaning in (engagement/curiosity) | Good time for jumpscare or reveal |
+| Rapid changes `"normal" → "far" → "normal"` | Player flinched/recoiled then recovered | Something just scared them |
+| `proximityState: "close"` + `attentionScore: 0.9` + low blink rate | Deep immersion | Player is fully absorbed, ideal state |
+
+**Example: Detecting a flinch**
+```javascript
+let recentProximity = [];
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  
+  if (data.proximityDeviation !== undefined) {
+    recentProximity.push(data.proximityDeviation);
+    
+    // Keep last 20 samples (~2 seconds)
+    if (recentProximity.length > 20) recentProximity.shift();
+    
+    // Detect sudden backward movement (flinch)
+    if (recentProximity.length >= 10) {
+      const recent = recentProximity.slice(-5);  // last 0.5 sec
+      const earlier = recentProximity.slice(-10, -5);  // 0.5 sec before that
+      
+      const recentAvg = recent.reduce((a,b) => a+b) / recent.length;
+      const earlierAvg = earlier.reduce((a,b) => a+b) / earlier.length;
+      
+      // If they suddenly leaned back >20%
+      if (earlierAvg - recentAvg > 0.2) {
+        console.log("FLINCH DETECTED - player recoiled");
+        // The last event scared them!
+      }
+    }
+  }
+};
+```
+
+**When NOT to use proximity:**
+- ❌ **Don't use for precise distance measurement** — it's a relative signal, not absolute cm/inches
+- ❌ **Don't penalize players for leaning back** — some people just sit farther from screens naturally
+- ⚠️ **Be careful with head-turn false positives** — if player turns head 45° left, face area drops even if they didn't move away
+
+**Recommendation:** Use proximity as a **secondary signal** to confirm interpretations from other metrics. "Player is blinking more + looking away + leaning back = probably uncomfortable" is stronger than any single signal alone.
+
+---
+
+### `faceArea` (0.0 to ~0.1)
+**What it measures:** Raw bounding box area of detected face (normalized 0-1 coordinate space).
+
+**Typical values:**
+- Close-up (face fills frame): 0.08 - 0.15
+- Normal sitting distance: 0.02 - 0.05
+- Far away: 0.005 - 0.02
+
+**Use cases:**
+- Mostly for debugging proximity issues
+- Could track over long periods to detect if player gradually moves closer/farther during gameplay
+
+**Note:** This is the raw measurement used to calculate `proximityDeviation`. You probably want to use `proximityDeviation` or `proximityState` instead, as they're normalized to the player's baseline.
 
 ---
 

@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<body>
+<h1>Director Agent Test Client</h1>
+<pre id="output"></pre>
+
+<script>
+const ws = new WebSocket('ws://localhost:8766');
+
+ws.onopen = () => console.log('Connected to Director');
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  document.getElementById('output').textContent = JSON.stringify(data, null, 2);
+  
+  // Log actions
+  if (data.action && data.action !== 'sustain') {
+    console.log(`🎬 ACTION: ${data.action}`, data);
+  }
+};
+</script>
+</body>
+</html>

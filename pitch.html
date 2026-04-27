@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>When NPCs Actually Watch You Back</title>
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Creepster&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --blood-red: #DC143C;
+            --deep-black: #0a0a0a;
+            --dark-gray: #1a1a1a;
+            --ash-white: #e8e8e8;
+            --ghost-white: #f5f5f5;
+            --shadow-red: rgba(220, 20, 60, 0.3);
+        }
+
+        body {
+            font-family: 'Crimson Text', serif;
+            background: var(--deep-black);
+            color: var(--ash-white);
+            overflow: hidden;
+            cursor: none;
+        }
+
+        /* Custom cursor */
+        .cursor {
+            position: fixed;
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--blood-red);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 10000;
+            transition: transform 0.15s ease, opacity 0.15s ease;
+            mix-blend-mode: difference;
+        }
+
+        .cursor-follower {
+            position: fixed;
+            width: 40px;
+            height: 40px;
+            border: 1px solid var(--blood-red);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 9999;
+            transition: transform 0.3s ease;
+            opacity: 0.5;
+        }
+
+        .slides-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        .slide {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 4rem;
+            opacity: 0;
+            transform: translateX(100%);
+            transition: opacity 0.8s cubic-bezier(0.65, 0, 0.35, 1),
+                        transform 0.8s cubic-bezier(0.65, 0, 0.35, 1);
+        }
+
+        .slide.active {
+            opacity: 1;
+            transform: translateX(0);
+            z-index: 10;
+        }
+
+        .slide.prev {
+            transform: translateX(-100%);
+        }
+
+        /* Slide backgrounds with grain texture */
+        .slide::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                radial-gradient(circle at 20% 30%, rgba(220, 20, 60, 0.1) 0%, transparent 40%),
+                radial-gradient(circle at 80% 70%, rgba(220, 20, 60, 0.05) 0%, transparent 50%);
+            opacity: 0.6;
+            z-index: 0;
+        }
+
+        .slide::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' /%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.05'/%3E%3C/svg%3E");
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .slide-content {
+            position: relative;
+            z-index: 2;
+            text-align: center;
+            max-width: 1200px;
+        }
+
+        /* Typography */
+        h1 {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: clamp(3rem, 10vw, 8rem);
+            line-height: 0.95;
+            letter-spacing: 0.02em;
+            color: var(--ghost-white);
+            margin-bottom: 2rem;
+            text-transform: uppercase;
+            animation: glitch 3s infinite;
+        }
+
+        @keyframes glitch {
+            0%, 96%, 100% {
+                text-shadow: 
+                    2px 2px 0 var(--blood-red),
+                    -2px -2px 0 rgba(220, 20, 60, 0.3);
+            }
+            97% {
+                text-shadow: 
+                    -2px 2px 0 var(--blood-red),
+                    2px -2px 0 rgba(220, 20, 60, 0.3);
+            }
+            98% {
+                text-shadow: 
+                    2px -2px 0 var(--blood-red),
+                    -2px 2px 0 rgba(220, 20, 60, 0.3);
+            }
+        }
+
+        .subtitle {
+            font-size: clamp(1.2rem, 3vw, 2rem);
+            color: var(--blood-red);
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-bottom: 3rem;
+        }
+
+        .tagline {
+            font-size: clamp(0.9rem, 1.5vw, 1.2rem);
+            color: var(--ash-white);
+            opacity: 0.7;
+            font-style: italic;
+        }
+
+        /* Slide 2 - Split layout */
+        .split-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4rem;
+            width: 100%;
+            max-width: 1400px;
+        }
+
+        .split-section h2 {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: clamp(2rem, 4vw, 3.5rem);
+            color: var(--blood-red);
+            margin-bottom: 2rem;
+            letter-spacing: 0.05em;
+        }
+
+        .split-section ul {
+            list-style: none;
+            font-size: clamp(1rem, 2vw, 1.4rem);
+            line-height: 2;
+        }
+
+        .split-section ul li {
+            opacity: 0;
+            animation: fadeInUp 0.6s ease forwards;
+            margin-bottom: 0.8rem;
+        }
+
+        .split-section ul li:nth-child(1) { animation-delay: 0.2s; }
+        .split-section ul li:nth-child(2) { animation-delay: 0.3s; }
+        .split-section ul li:nth-child(3) { animation-delay: 0.4s; }
+        .split-section ul li:nth-child(4) { animation-delay: 0.5s; }
+        .split-section ul li:nth-child(5) { animation-delay: 0.6s; }
+        .split-section ul li:nth-child(6) { animation-delay: 0.7s; }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .signal-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .signal-icon {
+            font-size: 1.5rem;
+            filter: grayscale(1) brightness(1.2);
+        }
+
+        .divider {
+            width: 2px;
+            height: 100%;
+            background: linear-gradient(to bottom, 
+                transparent, 
+                var(--blood-red) 20%, 
+                var(--blood-red) 80%, 
+                transparent);
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        .callout {
+            background: rgba(220, 20, 60, 0.1);
+            border-left: 4px solid var(--blood-red);
+            padding: 1.5rem 2rem;
+            margin-top: 3rem;
+            font-size: clamp(1rem, 2vw, 1.5rem);
+            font-weight: 600;
+            backdrop-filter: blur(10px);
+        }
+
+        /* Slide 3 - Tech Stack */
+        .tech-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 2rem;
+            width: 100%;
+            max-width: 1000px;
+            margin-top: 3rem;
+        }
+
+        .tech-box {
+            background: rgba(26, 26, 26, 0.8);
+            border: 2px solid var(--blood-red);
+            padding: 2rem;
+            position: relative;
+            overflow: hidden;
+            opacity: 0;
+            animation: fadeInUp 0.6s ease forwards;
+        }
+
+        .tech-box:nth-child(1) { animation-delay: 0.1s; }
+        .tech-box:nth-child(2) { animation-delay: 0.2s; }
+        .tech-box:nth-child(3) { animation-delay: 0.3s; }
+        .tech-box:nth-child(4) { animation-delay: 0.4s; }
+        .tech-box:nth-child(5) { animation-delay: 0.5s; }
+        .tech-box:nth-child(6) { animation-delay: 0.6s; }
+
+        .tech-box::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, 
+                transparent, 
+                rgba(220, 20, 60, 0.2), 
+                transparent);
+            transition: left 0.5s ease;
+        }
+
+        .tech-box:hover::before {
+            left: 100%;
+        }
+
+        .tech-box h3 {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.8rem;
+            color: var(--ghost-white);
+            margin-bottom: 0.5rem;
+            letter-spacing: 0.05em;
+        }
+
+        .tech-box p {
+            font-size: 1.1rem;
+            color: var(--ash-white);
+            opacity: 0.8;
+        }
+
+        .tech-arrow {
+            position: absolute;
+            font-size: 3rem;
+            color: var(--blood-red);
+            opacity: 0.6;
+        }
+
+        /* Slide 4 - Applications */
+        .apps-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 2rem;
+            width: 100%;
+            max-width: 1200px;
+            margin-top: 3rem;
+        }
+
+        .app-card {
+            background: linear-gradient(135deg, 
+                rgba(26, 26, 26, 0.9), 
+                rgba(220, 20, 60, 0.05));
+            border: 1px solid rgba(220, 20, 60, 0.3);
+            padding: 2.5rem;
+            position: relative;
+            opacity: 0;
+            animation: fadeInUp 0.6s ease forwards;
+            transition: transform 0.3s ease, border-color 0.3s ease;
+        }
+
+        .app-card:hover {
+            transform: translateY(-5px);
+            border-color: var(--blood-red);
+        }
+
+        .app-card:nth-child(1) { animation-delay: 0.2s; }
+        .app-card:nth-child(2) { animation-delay: 0.3s; }
+        .app-card:nth-child(3) { animation-delay: 0.4s; }
+        .app-card:nth-child(4) { animation-delay: 0.5s; }
+
+        .app-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            display: block;
+        }
+
+        .app-card h3 {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 2rem;
+            color: var(--blood-red);
+            margin-bottom: 1rem;
+            letter-spacing: 0.05em;
+        }
+
+        .app-card p {
+            font-size: 1.1rem;
+            line-height: 1.6;
+            color: var(--ash-white);
+        }
+
+        /* Navigation */
+        .nav-hint {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            font-size: 0.9rem;
+            color: var(--ash-white);
+            opacity: 0.5;
+            z-index: 100;
+            font-family: 'Crimson Text', serif;
+            font-style: italic;
+        }
+
+        .progress {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            height: 3px;
+            background: var(--blood-red);
+            transition: width 0.3s ease;
+            z-index: 100;
+        }
+
+        /* Demo slide */
+        .demo-placeholder {
+            width: 100%;
+            height: 60vh;
+            background: rgba(26, 26, 26, 0.5);
+            border: 2px dashed var(--blood-red);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 3rem;
+            color: var(--blood-red);
+            letter-spacing: 0.1em;
+            margin-top: 2rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .split-container,
+            .tech-grid,
+            .apps-grid {
+                grid-template-columns: 1fr;
+                gap: 2rem;
+            }
+
+            .divider {
+                display: none;
+            }
+
+            .slide {
+                padding: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="cursor"></div>
+    <div class="cursor-follower"></div>
+    
+    <div class="slides-container">
+        <!-- Slide 1: Title -->
+        <div class="slide active">
+            <div class="slide-content">
+                <h1>When NPCs<br>Actually Watch<br>You Back</h1>
+                <div class="subtitle">Physical Presence as Game Input</div>
+                <div class="tagline">Supercell Track — Gaming AI Innovation</div>
+            </div>
+        </div>
+
+        <!-- Slide 2: Core Idea -->
+        <div class="slide">
+            <div class="slide-content">
+                <h1 style="font-size: clamp(2.5rem, 6vw, 5rem); margin-bottom: 2rem;">
+                    What If The Game<br>Actually Watches You?
+                </h1>
+
+                <div style="
+                    max-width: 950px;
+                    margin: 0 auto;
+                    font-size: clamp(1.2rem, 2.2vw, 1.8rem);
+                    line-height: 1.55;
+                    text-align: left;
+                    color: var(--ash-white);
+                ">
+                    <p style="margin-bottom: 1.5rem;">
+                        We wanted to use AI to make games more immersive.
+                    </p>
+
+                    <p style="margin-bottom: 1.5rem;">
+                        Right now, the player is invisible to the game. In most games, the player is always behind the screen, but the game knows almost nothing about them.
+                    </p>
+
+                    <p style="margin-bottom: 1.5rem;">
+                        With visual input, we can understand where the player is looking, how they’re reacting, and how engaged they are.
+                    </p>
+
+                    <p style="margin-bottom: 1.5rem;">
+                        We thought this is especially powerful in horror, because horror only works if the player feels immersed and tense.
+                    </p>
+
+                    <p style="margin-bottom: 1.5rem;">
+                        So instead of just showing something scary, we wanted the game to react to the player themselves.
+                    </p>
+                </div>
+
+                <div class="callout" style="margin-top: 2.5rem; font-size: clamp(1.4rem, 3vw, 2.2rem); text-align: center;">
+                    The idea is simple: what if the game actually watches you?
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 3: Problem → Solution -->
+        <div class="slide">
+            <div class="slide-content">
+                <h1 style="font-size: clamp(2.5rem, 6vw, 5rem); margin-bottom: 3rem;">The Problem → Our Solution</h1>
+                <div class="split-container">
+                    <div class="divider"></div>
+                    <div class="split-section">
+                        <h2>Traditional NPCs</h2>
+                        <ul>
+                            <li>React to button presses</li>
+                            <li>Generic scripted dialogue</li>
+                            <li>Players disengage, tab out</li>
+                            <li>Every playthrough feels the same</li>
+                        </ul>
+                    </div>
+                    <div class="split-section">
+                        <h2>Our NPCs React to YOU</h2>
+                        <ul>
+                            <li class="signal-item"><span class="signal-icon">👁️</span> Blink tracking</li>
+                            <li class="signal-item"><span class="signal-icon">😊</span> Smile detection</li>
+                            <li class="signal-item"><span class="signal-icon">📐</span> Head pose</li>
+                            <li class="signal-item"><span class="signal-icon">📏</span> Proximity</li>
+                            <li class="signal-item"><span class="signal-icon">🎯</span> Attention score</li>
+                            <li class="signal-item"><span class="signal-icon">👤</span> Vision description</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="callout">
+                    Every player gets a personalized horror experience — the game literally watches THEM
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 3: Demo Placeholder -->
+        <div class="slide">
+            <div class="slide-content">
+                <h1 style="font-size: clamp(2.5rem, 6vw, 5rem);">Live Demo</h1>
+                <div class="demo-placeholder">
+                    
+                </div>
+                <div class="callout" style="margin-top: 2rem;">
+                    MediaPipe CV • Vision LLM • Horror Director
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 4: Tech Stack -->
+        <div class="slide">
+            <div class="slide-content">
+                <h1 style="font-size: clamp(2.5rem, 6vw, 5rem); margin-bottom: 1rem;">Real-Time CV Pipeline</h1>
+                <div class="subtitle" style="font-size: 1rem; margin-bottom: 1rem;">
+                    6 behavioral signals • Live dialogue generation
+                </div>
+                <div class="tech-grid">
+                    <div class="tech-box">
+                        <h3>Webcam Capture</h3>
+                        <p>Real-time video stream</p>
+                    </div>
+                    <div class="tech-box">
+                        <h3>Vision LLM</h3>
+                        <p>Player description</p>
+                    </div>
+                    <div class="tech-box">
+                        <h3>MediaPipe</h3>
+                        <p>6 behavioral signals</p>
+                    </div>
+                    <div class="tech-box">
+                        <h3>Horror Director</h3>
+                        <p>Dialogue generation</p>
+                    </div>
+                    <div class="tech-box">
+                        <h3>WebSocket → Unity</h3>
+                        <p>Game integration</p>
+                    </div>
+                    <div class="tech-box">
+                        <h3>NPC Reacts</h3>
+                        <p>Personalized response</p>
+                    </div>
+                </div>
+                <div class="callout" style="margin-top: 2rem; font-style: italic; opacity: 0.8;">
+                    Challenge: Vision caching + baseline calibration 
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 5: Beyond Horror -->
+        <div class="slide">
+            <div class="slide-content">
+                <h1 style="font-size: clamp(2.5rem, 6vw, 5rem); margin-bottom: 1rem;">Beyond Horror Games</h1>
+                <div class="subtitle" style="font-size: 1rem; margin-bottom: 1rem;">
+                    This SDK enables a new input layer for games
+                </div>
+                <div class="apps-grid">
+                    <div class="app-card">
+                        <span class="app-icon">📖</span>
+                        <h3>Narrative Games</h3>
+                        <p>Personalized dialogue that adapts to each player's appearance and behavior</p>
+                    </div>
+                    <div class="app-card">
+                        <span class="app-icon">🎮</span>
+                        <h3>Competitive Games</h3>
+                        <p>Attention & focus metrics for AI coaching and performance analysis</p>
+                    </div>
+                    <div class="app-card">
+                        <span class="app-icon">♿</span>
+                        <h3>Accessibility</h3>
+                        <p>Proximity & posture detection for comfort settings and adaptive UX</p>
+                    </div>
+                    <div class="app-card">
+                        <span class="app-icon">🛡️</span>
+                        <h3>Anti-Cheat</h3>
+                        <p>Detect when players look at second monitors or external aids</p>
+                    </div>
+                </div>
+                <div class="callout" style="margin-top: 2rem; font-style: italic;">
+                    Built for horror because that's where fourth-wall breaking hits hardest
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="progress"></div>
+    <div class="nav-hint">← → to navigate</div>
+
+    <script>
+        // Custom cursor
+        const cursor = document.querySelector('.cursor');
+        const follower = document.querySelector('.cursor-follower');
+
+        document.addEventListener('mousemove', (e) => {
+            cursor.style.transform = `translate(${e.clientX - 10}px, ${e.clientY - 10}px)`;
+            follower.style.transform = `translate(${e.clientX - 20}px, ${e.clientY - 20}px)`;
+        });
+
+        // Slide navigation
+        const slides = document.querySelectorAll('.slide');
+        const progress = document.querySelector('.progress');
+        let currentSlide = 0;
+
+        function updateSlides() {
+            slides.forEach((slide, index) => {
+                slide.classList.remove('active', 'prev');
+                if (index === currentSlide) {
+                    slide.classList.add('active');
+                } else if (index < currentSlide) {
+                    slide.classList.add('prev');
+                }
+            });
+
+            // Update progress bar
+            progress.style.width = `${((currentSlide + 1) / slides.length) * 100}%`;
+        }
+
+        function nextSlide() {
+            if (currentSlide < slides.length - 1) {
+                currentSlide++;
+                updateSlides();
+            }
+        }
+
+        function prevSlide() {
+            if (currentSlide > 0) {
+                currentSlide--;
+                updateSlides();
+            }
+        }
+
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight' || e.key === ' ') {
+                e.preventDefault();
+                nextSlide();
+            } else if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                prevSlide();
+            }
+        });
+
+        // Click navigation (right side = next, left side = prev)
+        document.addEventListener('click', (e) => {
+            if (e.clientX > window.innerWidth / 2) {
+                nextSlide();
+            } else {
+                prevSlide();
+            }
+        });
+
+        // Initial progress
+        updateSlides();
+    </script>
+</body>
+</html>
